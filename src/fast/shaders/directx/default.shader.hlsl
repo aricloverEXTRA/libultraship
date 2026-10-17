@@ -298,30 +298,51 @@ PSInput VSMain(
     @if(o_shade)
         @if(o_lighting)
             // N64 RSP lighting: the shade input carries the raw signed vertex normal
-            float3 litColor = ambient.rgb;
-            for (int i = 0; i < num_lights; i++) {
-                float intensity = 0.0;
-                @if(o_point_lighting)
-                if (lights[i * 3].w > 0.5) {
-                    float3 distVec = lights[i * 3 + 2].xyz - worldPos;
-                    float distSq = distVec.x * distVec.x + distVec.y * distVec.y + distVec.z * distVec.z * 2.0;
-                    float dist = sqrt(distSq);
-                    float3 lightModel = float3(dot(distVec, mv_rows[0].xyz), dot(distVec, mv_rows[1].xyz),
-                                               dot(distVec, mv_rows[2].xyz));
-                    float3 lightIntensity = clamp(4.0 * lightModel / distSq, -1.0, 1.0);
-                    float totalIntensity = clamp(dot(lightIntensity, shade.xyz), -1.0, 1.0);
-                    float distF = floor(dist);
-                    float attenuation = (distF * lights[i * 3 + 1].w * 2.0 +
-                                         distF * distF * lights[i * 3 + 2].w / 8.0) / 65535.0 + 1.0;
-                    intensity = totalIntensity / attenuation;
-                } else {
-                    intensity = dot(shade.xyz, lights[i * 3 + 1].xyz) / 127.0;
+            float3 litColor;
+            if (uCustom[8].x > 0.5) {
+                // PaperBoat enhanced lighting (opt-in, off by default): a modern
+                // hemisphere ambient plus wrapped diffuse derived entirely from the
+                // area's own light colours, so no new per-area data is required.
+                //   uCustom[8] = (enabled, wrap, groundScale, ambientBoost)
+                //   uCustom[11].rgb = scene tint
+                float3 pbNormal = normalize(shade.xyz);
+                float pbWrap = uCustom[8].y;
+                float pbGround = uCustom[8].z;
+                float pbBoost = uCustom[8].w;
+                float pbHemi = pbNormal.y * 0.5 + 0.5;
+                litColor = lerp(ambient.rgb * pbGround, ambient.rgb, pbHemi) * pbBoost;
+                for (int i = 0; i < num_lights; i++) {
+                    float ndl = dot(pbNormal, lights[i * 3 + 1].xyz) / 127.0;
+                    float wrapped = saturate((ndl + pbWrap) / (1.0 + pbWrap));
+                    litColor += wrapped * lights[i * 3].rgb;
                 }
-                @else
-                    intensity = dot(shade.xyz, lights[i * 3 + 1].xyz) / 127.0;
-                @end
-                if (intensity > 0.0) {
-                    litColor += intensity * lights[i * 3].rgb;
+                litColor *= uCustom[11].rgb;
+            } else {
+                litColor = ambient.rgb;
+                for (int i = 0; i < num_lights; i++) {
+                    float intensity = 0.0;
+                    @if(o_point_lighting)
+                    if (lights[i * 3].w > 0.5) {
+                        float3 distVec = lights[i * 3 + 2].xyz - worldPos;
+                        float distSq = distVec.x * distVec.x + distVec.y * distVec.y + distVec.z * distVec.z * 2.0;
+                        float dist = sqrt(distSq);
+                        float3 lightModel = float3(dot(distVec, mv_rows[0].xyz), dot(distVec, mv_rows[1].xyz),
+                                                   dot(distVec, mv_rows[2].xyz));
+                        float3 lightIntensity = clamp(4.0 * lightModel / distSq, -1.0, 1.0);
+                        float totalIntensity = clamp(dot(lightIntensity, shade.xyz), -1.0, 1.0);
+                        float distF = floor(dist);
+                        float attenuation = (distF * lights[i * 3 + 1].w * 2.0 +
+                                             distF * distF * lights[i * 3 + 2].w / 8.0) / 65535.0 + 1.0;
+                        intensity = totalIntensity / attenuation;
+                    } else {
+                        intensity = dot(shade.xyz, lights[i * 3 + 1].xyz) / 127.0;
+                    }
+                    @else
+                        intensity = dot(shade.xyz, lights[i * 3 + 1].xyz) / 127.0;
+                    @end
+                    if (intensity > 0.0) {
+                        litColor += intensity * lights[i * 3].rgb;
+                    }
                 }
             }
             litColor = min(litColor, float3(1.0, 1.0, 1.0));
