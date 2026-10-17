@@ -370,6 +370,19 @@ PSInput VSMain(
 #define MOD(x, y) ((x) - (y) * floor((x)/(y)))
 #define WRAP(x, low, high) MOD((x)-(low), (high)-(low)) + (low)
 
+// PaperBoat "modern look" grade. Applied to every shaded fragment when
+// uCustom[9].x > 0.5, so the game can drive a modern colour treatment directly
+// from the shader without relying on the post-pass chain.
+//   uCustom[9] = (enabled, saturation, contrast, brightness)
+float3 paperboatModernGrade(float3 color) {
+    float3 c = color;
+    float luma = dot(c, float3(0.299, 0.587, 0.114));
+    c = lerp(float3(luma, luma, luma), c, uCustom[9].y);
+    c = (c - 0.5) * uCustom[9].z + 0.5;
+    c *= uCustom[9].w;
+    return saturate(c);
+}
+
 struct PSOutput {
     float4 color : SV_TARGET;
     @if(o_prim_depth)
@@ -582,6 +595,13 @@ PSOutput PSMain(PSInput input, float4 screenSpace : SV_Position) {
         texel.rgb = applyRdpDither(texel.rgb, lod_params.w, screenSpace.xy, noise_scale, noise_frame);
     @else
         texel = applyRdpDither(texel, lod_params.w, screenSpace.xy, noise_scale, noise_frame);
+    @end
+
+    // Modern colour treatment (no-op when uCustom[9].x == 0).
+    @if(o_alpha)
+        if (uCustom[9].x > 0.5) texel.rgb = paperboatModernGrade(texel.rgb);
+    @else
+        if (uCustom[9].x > 0.5) texel = paperboatModernGrade(texel);
     @end
 
     // HD-replacement debug tint (no-op when debug_tint.a == 0)
