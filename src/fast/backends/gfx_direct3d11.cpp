@@ -1658,16 +1658,23 @@ std::string gfx_direct3d_common_build_shader(size_t& numFloats, const CCFeatures
 
     // PaperBoat shader diagnostics: one line per unique compiled shader so a play
     // log shows exactly which combiner/lighting permutations the game actually uses.
-    SPDLOG_INFO(
-        "[Shader] compile {} id={} lit={} point={} texgen={} texgenLin={} shade={} alpha={} fog={} "
-        "2cyc={} primDepth={} noise={} gray={} tex={}{} pal={}{} mask={}{} blend={}{} inputs={}",
-        path, cc_features.shader_id, cc_features.opt_lighting, cc_features.opt_point_lighting,
-        cc_features.opt_texgen, cc_features.opt_texgen_linear, cc_features.opt_shade, cc_features.opt_alpha,
-        cc_features.opt_fog, cc_features.opt_2cyc, cc_features.opt_prim_depth, cc_features.opt_noise,
-        cc_features.opt_grayscale, (int)cc_features.usedTextures[0], (int)cc_features.usedTextures[1],
-        (int)cc_features.used_palette[0], (int)cc_features.used_palette[1], (int)cc_features.used_masks[0],
-        (int)cc_features.used_masks[1], (int)cc_features.used_blend[0], (int)cc_features.used_blend[1],
-        cc_features.numInputs);
+    // Gated by Dev Tools -> General -> Shader Log Level (gDeveloperTools.ShaderLogLevel).
+    const int shaderLogLevel =
+        Ship::Context::GetRawInstance() != nullptr
+            ? Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger("gDeveloperTools.ShaderLogLevel", 1)
+            : 1;
+    if (shaderLogLevel > 0) {
+        SPDLOG_INFO(
+            "[Shader] compile {} id={} lit={} point={} texgen={} texgenLin={} shade={} alpha={} fog={} "
+            "2cyc={} primDepth={} noise={} gray={} tex={}{} pal={}{} mask={}{} blend={}{} inputs={}",
+            path, cc_features.shader_id, cc_features.opt_lighting, cc_features.opt_point_lighting,
+            cc_features.opt_texgen, cc_features.opt_texgen_linear, cc_features.opt_shade, cc_features.opt_alpha,
+            cc_features.opt_fog, cc_features.opt_2cyc, cc_features.opt_prim_depth, cc_features.opt_noise,
+            cc_features.opt_grayscale, (int)cc_features.usedTextures[0], (int)cc_features.usedTextures[1],
+            (int)cc_features.used_palette[0], (int)cc_features.used_palette[1], (int)cc_features.used_masks[0],
+            (int)cc_features.used_masks[1], (int)cc_features.used_blend[0], (int)cc_features.used_blend[1],
+            cc_features.numInputs);
+    }
 
     auto res = static_pointer_cast<Ship::Shader>(
         Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path, false, init));
