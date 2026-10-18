@@ -436,7 +436,7 @@ float3 paperboatFragmentLight(float3 objPos) {
 // Multiplicative fragment-lighting mode: light == 1 is identity, strength scales
 // the deviation from the base colour. Kept for compatibility with the original
 // "Fragment Lighting" toggle.
-float3 paperboatLightFragment(float3 base, float3 objPos, float3 light) {
+float3 paperboatLightFragment(float3 base, float3 light) {
     return base * lerp(float3(1.0, 1.0, 1.0), light, uCustom[15].y);
 }
 
