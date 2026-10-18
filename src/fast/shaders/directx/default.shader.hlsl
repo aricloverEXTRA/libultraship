@@ -402,19 +402,19 @@ float3 paperboatModernGrade(float3 color) {
 // (o_shade) geometry the shade slot carries baked colours, not a normal, so this
 // is the only way to obtain a real surface normal. The derivative normal's global
 // facing cannot be known a priori, so its sign is supplied at runtime
-// (uCustom[15].w). No-op when uCustom[15].x < 0.5.
+// (uCustom[15].w).
 //   uCustom[12] = (sunDirX, sunDirY, sunDirZ, sunIntensity)
 //   uCustom[13] = (skyR, skyG, skyB, skyStrength)
 //   uCustom[14] = (groundR, groundG, groundB, groundStrength)
 //   uCustom[15] = (enabled, strength, wrap, normalSign)
 //   uCustom[16] = (rimIntensity, rimPower, rimSkyBias, unused)
-float3 paperboatLightFragment(float3 base, float3 objPos) {
+//   uCustom[17] = (relightEnabled, relightStrength, bakedFloor, unused)
+//   uCustom[18] = (tonemapEnabled, exposure, curve, blend)
+// Returns the light colour; 1.0 is neutral (unlit).
+float3 paperboatFragmentLight(float3 objPos) {
     float3 nRaw = cross(ddx(objPos), ddy(objPos));
     float nLenSq = dot(nRaw, nRaw);
-    if (nLenSq < 1e-14) {
-        return base;
-    }
-    float3 n = nRaw * rsqrt(nLenSq) * uCustom[15].w;
+    float3 n = nLenSq > 1e-14 ? nRaw * rsqrt(nLenSq) * uCustom[15].w : float3(0.0, 1.0, 0.0);
 
     float wrap = uCustom[15].z;
     float hemi = n.y * 0.5 + 0.5;
@@ -430,9 +430,45 @@ float3 paperboatLightFragment(float3 base, float3 objPos) {
         float rimBias = hemi * uCustom[16].z + (1.0 - uCustom[16].z);
         light += pow(saturate(1.0 - ndl) * rimBias, max(uCustom[16].y, 0.001)) * uCustom[16].x;
     }
+    return light;
+}
 
-    // light == 1 is identity; strength scales the deviation from the base colour.
+// Multiplicative fragment-lighting mode: light == 1 is identity, strength scales
+// the deviation from the base colour. Kept for compatibility with the original
+// "Fragment Lighting" toggle.
+float3 paperboatLightFragment(float3 base, float3 objPos, float3 light) {
     return base * lerp(float3(1.0, 1.0, 1.0), light, uCustom[15].y);
+}
+
+// Albedo-recovery relight. PM64 bakes its lighting into the vertex-colour
+// ("shade") slot, so the shaded texel already contains that baked light. Dividing
+// it by the shade *luminance* recovers an approximately lighting-free albedo
+// while preserving hue (only brightness is normalised), which is then relit with
+// the fragment light. This turns the static baked light into a live one.
+float3 paperboatRelight(float3 shaded, float3 shade, float3 light) {
+    float baked = max(dot(shade, float3(0.299, 0.587, 0.114)), max(uCustom[17].z, 0.001));
+    float3 albedo = shaded / baked;
+    float3 relit = albedo * light;
+    return lerp(shaded, relit, saturate(uCustom[17].y));
+}
+
+// Filmic tonemap so highlights roll off instead of clipping (a large part of the
+// "flat N64" look). curve == 0 uses the Narkowicz ACES approximation, otherwise a
+// per-channel Reinhard. blend mixes back toward the untouched colour.
+float3 paperboatTonemap(float3 color) {
+    float3 c = color * max(uCustom[18].y, 0.001);
+    float3 mapped;
+    if (uCustom[18].z > 0.5) {
+        mapped = c / (c + 1.0);
+    } else {
+        const float a = 2.51;
+        const float b = 0.03;
+        const float c2 = 2.43;
+        const float d = 0.59;
+        const float e = 0.14;
+        mapped = saturate((c * (a * c + b)) / (c * (c2 * c + d) + e));
+    }
+    return lerp(color, mapped, saturate(uCustom[18].w));
 }
 
 struct PSOutput {
@@ -667,19 +703,33 @@ PSOutput PSMain(PSInput input, float4 screenSpace : SV_Position) {
         @end
     @end
 
-    // Per-fragment world lighting (no-op when uCustom[15].x < 0.5). Reconstructs a
-    // per-triangle normal from the object-space position and applies hemisphere +
-    // sun (+ optional rim), so every area gains real directional shading on top of
-    // its baked colours.
+    // Per-fragment world lighting and/or albedo-recovery relight (no-op unless
+    // uCustom[15].x or uCustom[17].x is set). Reconstructs a per-triangle normal
+    // from the object-space position and lights the surface, either by modulating
+    // the baked colours (fragment lighting) or by dividing the baked light back out
+    // and relighting (relight mode).
     @if(o_shade)
-        if (uCustom[15].x > 0.5) {
+        if (uCustom[15].x > 0.5 || uCustom[17].x > 0.5) {
+            float3 pbLight = paperboatFragmentLight(input.objPos);
             @if(o_alpha)
-                texel.rgb = paperboatLightFragment(texel.rgb, input.objPos);
+                if (uCustom[15].x > 0.5) texel.rgb = paperboatLightFragment(texel.rgb, pbLight);
+                if (uCustom[17].x > 0.5) texel.rgb = paperboatRelight(texel.rgb, input.shade.rgb, pbLight);
             @else
-                texel = paperboatLightFragment(texel, input.objPos);
+                if (uCustom[15].x > 0.5) texel = paperboatLightFragment(texel, pbLight);
+                if (uCustom[17].x > 0.5) texel = paperboatRelight(texel, input.shade, pbLight);
             @end
         }
     @end
+
+    // Filmic tonemap (no-op when uCustom[18].x == 0). Rolls off highlights that the
+    // relight can push above 1.0 instead of letting them clip flat.
+    if (uCustom[18].x > 0.5) {
+        @if(o_alpha)
+            texel.rgb = paperboatTonemap(texel.rgb);
+        @else
+            texel = paperboatTonemap(texel);
+        @end
+    }
 
     // HD-replacement debug tint (no-op when debug_tint.a == 0)
     @if(o_alpha)
