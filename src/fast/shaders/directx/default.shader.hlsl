@@ -41,6 +41,13 @@ float fogFactor : FOG;
         @{update_floats(3)}
     @end
 @end
+@if(o_shade)
+    // Object-space vertex position (a VS output, not a vertex attribute). The
+    // pixel shader differentiates it to reconstruct a flat per-triangle normal
+    // for the enhanced fragment lighting, since unlit (o_shade) geometry carries
+    // baked colours in the shade slot instead of a normal.
+    float3 objPos : OBJPOS;
+@end
 };
 
 @if(o_lighting || o_texgen)
@@ -360,6 +367,12 @@ PSInput VSMain(
         @end
     @end
 
+    @if(o_shade)
+        // Raw object-space position; differentiated in the pixel shader into a
+        // per-triangle normal for the enhanced fragment lighting.
+        result.objPos = position.xyz;
+    @end
+
     return result;
 }
 
@@ -381,6 +394,45 @@ float3 paperboatModernGrade(float3 color) {
     c = (c - 0.5) * uCustom[9].z + 0.5;
     c *= uCustom[9].w;
     return saturate(c);
+}
+
+// PaperBoat per-fragment world lighting. The normal is reconstructed from the
+// screen-space derivatives of the interpolated object-space position, giving a
+// flat per-triangle normal that suits the N64's low-poly geometry. For unlit
+// (o_shade) geometry the shade slot carries baked colours, not a normal, so this
+// is the only way to obtain a real surface normal. The derivative normal's global
+// facing cannot be known a priori, so its sign is supplied at runtime
+// (uCustom[15].w). No-op when uCustom[15].x < 0.5.
+//   uCustom[12] = (sunDirX, sunDirY, sunDirZ, sunIntensity)
+//   uCustom[13] = (skyR, skyG, skyB, skyStrength)
+//   uCustom[14] = (groundR, groundG, groundB, groundStrength)
+//   uCustom[15] = (enabled, strength, wrap, normalSign)
+//   uCustom[16] = (rimIntensity, rimPower, rimSkyBias, unused)
+float3 paperboatLightFragment(float3 base, float3 objPos) {
+    float3 nRaw = cross(ddx(objPos), ddy(objPos));
+    float nLenSq = dot(nRaw, nRaw);
+    if (nLenSq < 1e-14) {
+        return base;
+    }
+    float3 n = nRaw * rsqrt(nLenSq) * uCustom[15].w;
+
+    float wrap = uCustom[15].z;
+    float hemi = n.y * 0.5 + 0.5;
+    float3 sky = uCustom[13].rgb * uCustom[13].a;
+    float3 ground = uCustom[14].rgb * uCustom[14].a;
+    float3 light = lerp(ground, sky, hemi);
+
+    float ndl = saturate((dot(n, uCustom[12].xyz) + wrap) / (1.0 + wrap));
+    light += ndl * uCustom[12].w;
+
+    // Rim: grazing angle away from the sun, biased toward the sky hemisphere.
+    if (uCustom[16].x > 0.0) {
+        float rimBias = hemi * uCustom[16].z + (1.0 - uCustom[16].z);
+        light += pow(saturate(1.0 - ndl) * rimBias, max(uCustom[16].y, 0.001)) * uCustom[16].x;
+    }
+
+    // light == 1 is identity; strength scales the deviation from the base colour.
+    return base * lerp(float3(1.0, 1.0, 1.0), light, uCustom[15].y);
 }
 
 struct PSOutput {
@@ -613,6 +665,20 @@ PSOutput PSMain(PSInput input, float4 screenSpace : SV_Position) {
         @else
             if (uCustom[10].a > 0.001) texel *= lerp(float3(1.0, 1.0, 1.0), uCustom[10].rgb, uCustom[10].a);
         @end
+    @end
+
+    // Per-fragment world lighting (no-op when uCustom[15].x < 0.5). Reconstructs a
+    // per-triangle normal from the object-space position and applies hemisphere +
+    // sun (+ optional rim), so every area gains real directional shading on top of
+    // its baked colours.
+    @if(o_shade)
+        if (uCustom[15].x > 0.5) {
+            @if(o_alpha)
+                texel.rgb = paperboatLightFragment(texel.rgb, input.objPos);
+            @else
+                texel = paperboatLightFragment(texel, input.objPos);
+            @end
+        }
     @end
 
     // HD-replacement debug tint (no-op when debug_tint.a == 0)
