@@ -709,14 +709,22 @@ PSOutput PSMain(PSInput input, float4 screenSpace : SV_Position) {
     // the baked colours (fragment lighting) or by dividing the baked light back out
     // and relighting (relight mode).
     @if(o_shade)
-        if (uCustom[15].x > 0.5 || uCustom[17].x > 0.5) {
+        if (uCustom[17].x > 0.5) {
+            // Relight supersedes fragment lighting: it already relights the surface
+            // from the recovered albedo, so applying the multiplicative mode too
+            // would light the texel twice and blow out the image.
             float3 pbLight = paperboatFragmentLight(input.objPos);
             @if(o_alpha)
-                if (uCustom[15].x > 0.5) texel.rgb = paperboatLightFragment(texel.rgb, pbLight);
-                if (uCustom[17].x > 0.5) texel.rgb = paperboatRelight(texel.rgb, input.shade.rgb, pbLight);
+                texel.rgb = paperboatRelight(texel.rgb, input.shade.rgb, pbLight);
             @else
-                if (uCustom[15].x > 0.5) texel = paperboatLightFragment(texel, pbLight);
-                if (uCustom[17].x > 0.5) texel = paperboatRelight(texel, input.shade, pbLight);
+                texel = paperboatRelight(texel, input.shade, pbLight);
+            @end
+        } else if (uCustom[15].x > 0.5) {
+            float3 pbLight = paperboatFragmentLight(input.objPos);
+            @if(o_alpha)
+                texel.rgb = paperboatLightFragment(texel.rgb, pbLight);
+            @else
+                texel = paperboatLightFragment(texel, pbLight);
             @end
         }
     @end
