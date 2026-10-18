@@ -5891,6 +5891,10 @@ int Interpreter::RunPostPasses() {
 
         // Previous image on tile 0
         mRapi->SelectTextureFb(cur, 0);
+        // Scene depth on tile 1. Only the game framebuffer has a depth buffer;
+        // ping-pong targets don't, so later passes get a cleared binding. A pass
+        // shader may sample it as t1/s1 to reconstruct screen-space geometry.
+        mRapi->SelectTextureFbDepth(cur == mGameFb ? cur : -1, 1);
         mRdp->textures_changed[0] = false;
         mRdp->textures_changed[1] = false;
 
@@ -5908,6 +5912,9 @@ int Interpreter::RunPostPasses() {
         cur = dst;
         pingpong ^= 1;
     }
+
+    // Drop the depth override so it can't leak into the next frame's draws
+    mRapi->SelectTextureFbDepth(-1, 1);
 
     // Restore the surrounding frame state
     mRdp->combine_mode = savedCombine;

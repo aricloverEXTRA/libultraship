@@ -604,6 +604,9 @@ static bool CreateTextureAndView(ID3D11Device* device, const D3D11_TEXTURE2D_DES
 void GfxRenderingAPIDX11::SelectTexture(int tile, uint32_t texture_id) {
     mCurrentTile = tile;
     mCurrentTextureIds[tile] = texture_id;
+    // Selecting a color texture supersedes any depth override left on this tile
+    // by a previous post pass.
+    mCurrentDepthSrvs[tile] = nullptr;
 }
 
 static D3D11_TEXTURE_ADDRESS_MODE gfx_cm_to_d3d11(uint32_t val) {
@@ -891,6 +894,20 @@ void GfxRenderingAPIDX11::DrawTriangles(float buf_vbo[], size_t buf_vbo_len, siz
         }
     }
 
+    // Depth overrides for post passes: when a tile carries a depth SRV (set via
+    // SelectTextureFbDepth) bind it directly, bypassing the usedTextures gate
+    // above since depth is not a color texture id.
+    for (int i = 0; i < SHADER_MAX_TEXTURES; i++) {
+        if (mCurrentDepthSrvs[i].Get() == nullptr) {
+            continue;
+        }
+        if (mLastResourceViews[i].Get() != mCurrentDepthSrvs[i].Get()) {
+            mLastResourceViews[i] = mCurrentDepthSrvs[i].Get();
+            mContext->PSSetShaderResources(i, 1, mCurrentDepthSrvs[i].GetAddressOf());
+        }
+        mContext->PSSetSamplers(i, 1, mDepthSampler.GetAddressOf());
+    }
+
     // Set per-draw constant buffer (texture metadata + combiner constants)
     if (textures_changed || mCombinerUniformsDirty || mCustomUniformsDirty) {
         memcpy(mPerDrawCbData.combiner_inputs, mCombinerUniforms.inputs, sizeof(mPerDrawCbData.combiner_inputs));
@@ -1151,6 +1168,37 @@ void* GfxRenderingAPIDX11::GetFramebufferTextureId(int fb_id) {
 
 void GfxRenderingAPIDX11::SelectTextureFb(int fbID, int tile) {
     SelectTexture(tile, mFrameBuffers[fbID].texture_id);
+}
+
+void GfxRenderingAPIDX11::SelectTextureFbDepth(int fbID, int tile) {
+    if (tile < 0 || tile >= SHADER_MAX_TEXTURES) {
+        return;
+    }
+    if (fbID < 0 || (size_t)fbID >= mFrameBuffers.size()) {
+        mCurrentDepthSrvs[tile] = nullptr;
+        return;
+    }
+    const FramebufferDX11& fb = mFrameBuffers[fbID];
+    // MSAA depth is a multisampled SRV (no .Sample); only single-sampled depth
+    // is samplable. Callers must ensure MSAA is off for depth-consuming passes.
+    if (fb.msaa_level > 1 || fb.depth_stencil_srv.Get() == nullptr) {
+        mCurrentDepthSrvs[tile] = nullptr;
+        return;
+    }
+
+    if (mDepthSampler.Get() == nullptr) {
+        D3D11_SAMPLER_DESC sampler_desc;
+        ZeroMemory(&sampler_desc, sizeof(D3D11_SAMPLER_DESC));
+        sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+        sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.MinLOD = 0;
+        sampler_desc.MaxLOD = D3D11_FLOAT32_MAX;
+        ThrowIfFailed(mDevice->CreateSamplerState(&sampler_desc, mDepthSampler.GetAddressOf()));
+    }
+
+    mCurrentDepthSrvs[tile] = fb.depth_stencil_srv;
 }
 
 void GfxRenderingAPIDX11::CopyFramebuffer(int fb_dst_id, int fb_src_id, int srcX0, int srcY0, int srcX1, int srcY1,

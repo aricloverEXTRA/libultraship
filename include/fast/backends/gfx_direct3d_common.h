@@ -135,6 +135,7 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     GetPixelDepth(int fb_id, const std::set<std::pair<float, float>>& coordinates) override;
     void* GetFramebufferTextureId(int fbId) override;
     void SelectTextureFb(int fbId, int tile) override;
+    void SelectTextureFbDepth(int fbId, int tile) override;
     void DeleteTexture(uint32_t texId) override;
     void SetTextureFilter(FilteringMode mode) override;
     FilteringMode GetTextureFilter() override;
@@ -214,6 +215,12 @@ class GfxRenderingAPIDX11 final : public GfxRenderingAPI {
     Microsoft::WRL::ComPtr<ID3D11BlendState> mLastBlendState = nullptr;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> mLastResourceViews[SHADER_MAX_TEXTURES] = { nullptr, nullptr };
     Microsoft::WRL::ComPtr<ID3D11SamplerState> mLastSamplerStates[SHADER_MAX_TEXTURES] = { nullptr, nullptr };
+
+    // Depth-stencil SRV overrides for post passes (SelectTextureFbDepth). When
+    // non-null for a tile, DrawTriangles binds this instead of the tile's color
+    // texture, letting a pass shader sample scene depth. Cleared by SelectTexture.
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> mCurrentDepthSrvs[SHADER_MAX_TEXTURES] = {};
+    Microsoft::WRL::ComPtr<ID3D11SamplerState> mDepthSampler;
 
     D3D_PRIMITIVE_TOPOLOGY mLastPrimitaveTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
 

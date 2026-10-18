@@ -160,6 +160,12 @@ class GfxRenderingAPI {
     // conventional tile 0 pass 0; a 2-cycle combiner sampling the frame buffer
     // as TEXEL1 needs it on tile 1.
     virtual void SelectTextureFb(int fbId, int tile) = 0;
+    // Bind the depth-stencil SRV of a framebuffer to a texture unit so a
+    // post-pass shader can sample scene depth alongside the color image.
+    // `tile` follows SelectTextureFb (0/1). Passing a negative fbId (or an
+    // fb without a sampleable depth buffer) clears the binding. Backends that
+    // cannot expose depth use the default no-op, so callers need not check.
+    virtual void SelectTextureFbDepth(int fbId, int tile) {}
     virtual void DeleteTexture(uint32_t texId) = 0;
     virtual void SetTextureFilter(FilteringMode mode) = 0;
     virtual FilteringMode GetTextureFilter() = 0;
