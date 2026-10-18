@@ -604,6 +604,17 @@ PSOutput PSMain(PSInput input, float4 screenSpace : SV_Position) {
         if (uCustom[9].x > 0.5) texel = paperboatModernGrade(texel);
     @end
 
+    // Per-area ambient colour grade (no-op when uCustom[10].a == 0). Modulates the
+    // world's vertex-shaded geometry so each area adopts the mood of its own
+    // background palette. uCustom[10] = (tintR, tintG, tintB, strength).
+    @if(o_shade)
+        @if(o_alpha)
+            if (uCustom[10].a > 0.001) texel.rgb *= lerp(float3(1.0, 1.0, 1.0), uCustom[10].rgb, uCustom[10].a);
+        @else
+            if (uCustom[10].a > 0.001) texel *= lerp(float3(1.0, 1.0, 1.0), uCustom[10].rgb, uCustom[10].a);
+        @end
+    @end
+
     // HD-replacement debug tint (no-op when debug_tint.a == 0)
     @if(o_alpha)
         texel.rgb = lerp(texel.rgb, debug_tint.rgb, debug_tint.a);
