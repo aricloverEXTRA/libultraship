@@ -3763,6 +3763,34 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
 
     ColorCombiner* comb = LookupOrCreateColorCombiner(key);
 
+    // TEMP DIAG: how much world geometry is lit (real vertex normals) vs unlit
+    // (baked vertex colours). Logged once per ~10s window; remove after analysis.
+    {
+        static uint64_t sWinTotal = 0, sWinLit = 0, sWinShadeUnlit = 0, sWinOther = 0;
+        static uint64_t sTotal = 0, sLit = 0;
+        static uint32_t sWinFrame = 0;
+        sWinTotal++;
+        sTotal++;
+        if (cc_options & SHADER_OPT(LIGHTING)) {
+            sWinLit++;
+            sLit++;
+        } else if (comb->usedShade) {
+            sWinShadeUnlit++;
+        } else {
+            sWinOther++;
+        }
+        if (mCustomFrameCount != 0 && mCustomFrameCount - sWinFrame >= 600) {
+            const double wp = sWinTotal > 0 ? 100.0 / (double)sWinTotal : 0.0;
+            const double cp = sTotal > 0 ? 100.0 / (double)sTotal : 0.0;
+            SPDLOG_INFO("[LightingDiag] window={}f tri={} | lit={:.1f}% shadeUnlit={:.1f}% other={:.1f}% "
+                        "|| cumulative tri={} lit={:.1f}%",
+                        mCustomFrameCount - sWinFrame, sWinTotal, sWinLit * wp, sWinShadeUnlit * wp, sWinOther * wp,
+                        sTotal, sLit * cp);
+            sWinTotal = sWinLit = sWinShadeUnlit = sWinOther = 0;
+            sWinFrame = mCustomFrameCount;
+        }
+    }
+
     // Different combiners can share a shader program but map different RDP
     // registers into the uniform slots; never mix them in one batch.
     if (mPendingCombiner != comb) {
