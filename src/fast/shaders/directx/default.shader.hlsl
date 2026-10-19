@@ -410,6 +410,8 @@ float3 paperboatModernGrade(float3 color) {
 //   uCustom[16] = (rimIntensity, rimPower, rimSkyBias, unused)
 //   uCustom[17] = (relightEnabled, relightStrength, bakedFloor, unused)
 //   uCustom[18] = (tonemapEnabled, exposure, curve, blend)
+//   uCustom[21] = (sunR, sunG, sunB, ambientLevel)
+//   uCustom[22] = (sunExposure, unused, debugMode, unused)
 // Returns the light colour; 1.0 is neutral (unlit).
 float3 paperboatFragmentLight(float3 objPos) {
     float3 nRaw = cross(ddx(objPos), ddy(objPos));
@@ -417,20 +419,37 @@ float3 paperboatFragmentLight(float3 objPos) {
     float3 n = nLenSq > 1e-14 ? nRaw * rsqrt(nLenSq) * uCustom[15].w : float3(0.0, 1.0, 0.0);
 
     float wrap = uCustom[15].z;
+
+    // Ambient level deepens (or lifts) the hemisphere term: lower values darken
+    // shadowed sides so the sun reads as a real key light. 0 is treated as "unset"
+    // and leaves the ambient untouched, so ports that never write the register keep
+    // the previous behaviour.
+    float ambientLevel = uCustom[21].w > 0.001 ? uCustom[21].w : 1.0;
     float hemi = n.y * 0.5 + 0.5;
     float3 sky = uCustom[13].rgb * uCustom[13].a;
     float3 ground = uCustom[14].rgb * uCustom[14].a;
-    float3 light = lerp(ground, sky, hemi);
+    float3 light = lerp(ground, sky, hemi) * ambientLevel;
 
-    float ndl = saturate((dot(n, uCustom[12].xyz) + wrap) / (1.0 + wrap));
-    light += ndl * uCustom[12].w;
+    // Warm sun colour (white when the mod has not supplied a tint). The world sun
+    // direction is normalised defensively so an unset register cannot produce NaN.
+    float3 sunColor = (uCustom[21].r + uCustom[21].g + uCustom[21].b) > 0.001 ? uCustom[21].rgb
+                                                                             : float3(1.0, 1.0, 1.0);
+    float3 sunRaw = uCustom[12].xyz;
+    float sunLenSq = dot(sunRaw, sunRaw);
+    float3 sunDir = sunLenSq > 1e-8 ? sunRaw * rsqrt(sunLenSq) : float3(0.0, 1.0, 0.0);
+    float ndl = saturate((dot(n, sunDir) + wrap) / (1.0 + wrap));
+    light += ndl * sunColor * uCustom[12].w;
 
     // Rim: grazing angle away from the sun, biased toward the sky hemisphere.
     if (uCustom[16].x > 0.0) {
         float rimBias = hemi * uCustom[16].z + (1.0 - uCustom[16].z);
         light += pow(saturate(1.0 - ndl) * rimBias, max(uCustom[16].y, 0.001)) * uCustom[16].x;
     }
-    return light;
+
+    // Whole-scene sunlight exposure: darkens outdoor areas when < 1 (moodier sun)
+    // or lifts them when > 1. 0 is treated as "unset".
+    float exposure = uCustom[22].x > 0.001 ? uCustom[22].x : 1.0;
+    return light * exposure;
 }
 
 // Multiplicative fragment-lighting mode: light == 1 is identity, strength scales
@@ -707,31 +726,49 @@ PSOutput PSMain(PSInput input, float4 screenSpace : SV_Position) {
     // uCustom[15].x or uCustom[17].x is set). Reconstructs a per-triangle normal
     // from the object-space position and lights the surface, either by modulating
     // the baked colours (fragment lighting) or by dividing the baked light back out
-    // and relighting (relight mode).
+    // and relighting (relight mode). uCustom[22].z selects a dev debug view instead:
+    // 1 = the raw fragment light, 2 = the reconstructed normal.
     @if(o_shade)
-        if (uCustom[17].x > 0.5) {
-            // Relight supersedes fragment lighting: it already relights the surface
-            // from the recovered albedo, so applying the multiplicative mode too
-            // would light the texel twice and blow out the image.
+        if (uCustom[15].x > 0.5 || uCustom[17].x > 0.5) {
             float3 pbLight = paperboatFragmentLight(input.objPos);
-            @if(o_alpha)
-                texel.rgb = paperboatRelight(texel.rgb, input.shade.rgb, pbLight);
-            @else
-                texel = paperboatRelight(texel, input.shade, pbLight);
-            @end
-        } else if (uCustom[15].x > 0.5) {
-            float3 pbLight = paperboatFragmentLight(input.objPos);
-            @if(o_alpha)
-                texel.rgb = paperboatLightFragment(texel.rgb, pbLight);
-            @else
-                texel = paperboatLightFragment(texel, pbLight);
-            @end
+            if (uCustom[22].z > 1.5) {
+                float3 pbNRaw = cross(ddx(input.objPos), ddy(input.objPos)) * uCustom[15].w;
+                float pbNLen = dot(pbNRaw, pbNRaw);
+                float3 pbN = pbNLen > 1e-14 ? pbNRaw * rsqrt(pbNLen) : float3(0.0, 1.0, 0.0);
+                @if(o_alpha)
+                    texel.rgb = pbN * 0.5 + 0.5;
+                @else
+                    texel = pbN * 0.5 + 0.5;
+                @end
+            } else if (uCustom[22].z > 0.5) {
+                @if(o_alpha)
+                    texel.rgb = pbLight;
+                @else
+                    texel = pbLight;
+                @end
+            } else if (uCustom[17].x > 0.5) {
+                // Relight supersedes fragment lighting: it already relights the surface
+                // from the recovered albedo, so applying the multiplicative mode too
+                // would light the texel twice and blow out the image.
+                @if(o_alpha)
+                    texel.rgb = paperboatRelight(texel.rgb, input.shade.rgb, pbLight);
+                @else
+                    texel = paperboatRelight(texel, input.shade, pbLight);
+                @end
+            } else {
+                @if(o_alpha)
+                    texel.rgb = paperboatLightFragment(texel.rgb, pbLight);
+                @else
+                    texel = paperboatLightFragment(texel, pbLight);
+                @end
+            }
         }
     @end
 
     // Filmic tonemap (no-op when uCustom[18].x == 0). Rolls off highlights that the
-    // relight can push above 1.0 instead of letting them clip flat.
-    if (uCustom[18].x > 0.5) {
+    // relight can push above 1.0 instead of letting them clip flat. Skipped while a
+    // fragment-lighting debug view is active so the raw term stays readable.
+    if (uCustom[18].x > 0.5 && uCustom[22].z < 0.5) {
         @if(o_alpha)
             texel.rgb = paperboatTonemap(texel.rgb);
         @else
