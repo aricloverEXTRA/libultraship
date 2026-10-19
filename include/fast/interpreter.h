@@ -772,6 +772,11 @@ class Interpreter {
     uintptr_t mGfxFrameBuffer{};
 
     unsigned int mMsaaLevel = 1;
+    // MSAA level the game framebuffer was actually created with. Post passes
+    // sample the scene depth buffer, which requires a single-sampled depth
+    // buffer, so this is forced to 1 while any post pass is registered. Every
+    // resolve/present path must key off this rather than mMsaaLevel.
+    unsigned int mGameFbAppliedMsaa = 1;
     bool mDroppedFrame{};
     float* mBufVbo; // 3 vertices in a triangle and 32 floats per vtx
     size_t mBufVboLen{};

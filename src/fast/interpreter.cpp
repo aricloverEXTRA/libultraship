@@ -4319,7 +4319,7 @@ void Interpreter::AdjustVIewportOrScissor(XYWidthHeight* area) {
         area->x *= RATIO_X(mActiveFrameBuffer, mCurDimensions);
         area->y *= RATIO_Y(mActiveFrameBuffer, mCurDimensions);
 
-        if (!mRendersToFb || (mMsaaLevel > 1 && mCurDimensions.width == mGameWindowViewport.width &&
+        if (!mRendersToFb || (mGameFbAppliedMsaa > 1 && mCurDimensions.width == mGameWindowViewport.width &&
                               mCurDimensions.height == mGameWindowViewport.height)) {
             area->x += mGameWindowViewport.x;
             area->y += mGfxCurrentWindowDimensions.height - (mGameWindowViewport.y + mGameWindowViewport.height);
@@ -5818,7 +5818,7 @@ int Interpreter::RunPostPasses() {
 
     // The chain needs a single-sampled input
     int srcFb = mGameFb;
-    if (mMsaaLevel > 1) {
+    if (mGameFbAppliedMsaa > 1) {
         mRapi->ResolveMSAAColorBuffer(mGameFbMsaaResolved, mGameFb);
         srcFb = mGameFbMsaaResolved;
     }
@@ -7775,21 +7775,26 @@ void Interpreter::StartFrame() {
     mPrvDimensions = mCurDimensions;
     mPrevNativeDimensions = mNativeDimensions;
     const bool postPassesActive = HasPostPasses();
+    // Post passes (SSAO/depth debug) sample the scene depth buffer, which must be
+    // single-sampled to be shader-readable. Run the game framebuffer without MSAA
+    // while any post pass is registered so the depth SRV is always valid.
+    const uint32_t gameFbMsaa = postPassesActive ? 1u : mMsaaLevel;
+    mGameFbAppliedMsaa = gameFbMsaa;
     if (!ViewportMatchesRendererResolution() || mMsaaLevel > 1 || postPassesActive) {
         mRendersToFb = true;
         if (!ViewportMatchesRendererResolution()) {
-            mRapi->UpdateFramebufferParameters(mGameFb, mCurDimensions.width, mCurDimensions.height, mMsaaLevel, true,
+            mRapi->UpdateFramebufferParameters(mGameFb, mCurDimensions.width, mCurDimensions.height, gameFbMsaa, true,
                                                true, true, true);
         } else if (postPassesActive) {
-            mRapi->UpdateFramebufferParameters(mGameFb, mCurDimensions.width, mCurDimensions.height, mMsaaLevel, true,
+            mRapi->UpdateFramebufferParameters(mGameFb, mCurDimensions.width, mCurDimensions.height, gameFbMsaa, true,
                                                true, true, true);
         } else {
             // MSAA framebuffer needs to be resolved to an equally sized target when complete, which must therefore
             // match the window size.
             mRapi->UpdateFramebufferParameters(mGameFb, mGfxCurrentWindowDimensions.width,
-                                               mGfxCurrentWindowDimensions.height, mMsaaLevel, false, true, true, true);
+                                               mGfxCurrentWindowDimensions.height, gameFbMsaa, false, true, true, true);
         }
-        if (mMsaaLevel > 1 && (!ViewportMatchesRendererResolution() || postPassesActive)) {
+        if (gameFbMsaa > 1 && (!ViewportMatchesRendererResolution() || postPassesActive)) {
             // Single-sample resolve target for the post chain; matches the game fb.
             mRapi->UpdateFramebufferParameters(mGameFbMsaaResolved, mCurDimensions.width, mCurDimensions.height, 1,
                                                false, false, false, false);
@@ -7806,8 +7811,8 @@ void Interpreter::StartFrame() {
     }
     if (mRendersToFb) {
         const size_t pixels = (size_t)mCurDimensions.width * mCurDimensions.height;
-        fbBytes += pixels * 8 * std::max<uint32_t>(1, mMsaaLevel);
-        if (mMsaaLevel > 1) {
+        fbBytes += pixels * 8 * std::max<uint32_t>(1, mGameFbAppliedMsaa);
+        if (mGameFbAppliedMsaa > 1) {
             fbBytes += pixels * 4; // resolve target
         }
     }
@@ -7863,7 +7868,7 @@ void Interpreter::RunGuiOnly() {
     if (mRendersToFb) {
         mRapi->StartDrawToFramebuffer(0, 1);
         mRapi->ClearFramebuffer(true, true);
-        if (mMsaaLevel > 1) {
+        if (mGameFbAppliedMsaa > 1) {
             if (!ViewportMatchesRendererResolution()) {
                 mRapi->ResolveMSAAColorBuffer(mGameFbMsaaResolved, mGameFb);
                 mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(mGameFbMsaaResolved);
@@ -7986,7 +7991,7 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
         if (postOutputFb >= 0) {
             // Post-processed image; MSAA was already resolved inside the chain
             mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(postOutputFb);
-        } else if (mMsaaLevel > 1) {
+        } else if (mGameFbAppliedMsaa > 1) {
             if (!ViewportMatchesRendererResolution()) {
                 mRapi->ResolveMSAAColorBuffer(mGameFbMsaaResolved, mGameFb);
                 mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(mGameFbMsaaResolved);
@@ -8065,7 +8070,7 @@ void Interpreter::CopyFrameBuffer(int fb_dst_id, int fb_src_id, bool copyOnce, b
 
     // When rendering to the main window buffer or MSAA is enabled with a buffer size equal to the view port,
     // then the source coordinates must account for any docked ImGui elements
-    if (fb_src_id == 0 || (mMsaaLevel > 1 && mCurDimensions.width == mGameWindowViewport.width &&
+    if (fb_src_id == 0 || (mGameFbAppliedMsaa > 1 && mCurDimensions.width == mGameWindowViewport.width &&
                            mCurDimensions.height == mGameWindowViewport.height)) {
         srcX0 = mGameWindowViewport.x;
         srcY0 = mGameWindowViewport.y;
@@ -8099,7 +8104,7 @@ void Interpreter::AdjustPixelDepthCoordinates(float& x, float& y) {
     x = x * RATIO_X(mActiveFrameBuffer, mCurDimensions) -
         (mNativeDimensions.width * RATIO_X(mActiveFrameBuffer, mCurDimensions) - mCurDimensions.width) / 2;
     y *= RATIO_Y(mActiveFrameBuffer, mCurDimensions);
-    if (!mRendersToFb || (mMsaaLevel > 1 && mCurDimensions.width == mGameWindowViewport.width &&
+    if (!mRendersToFb || (mGameFbAppliedMsaa > 1 && mCurDimensions.width == mGameWindowViewport.width &&
                           mCurDimensions.height == mGameWindowViewport.height)) {
         x += mGameWindowViewport.x;
         y += mGfxCurrentWindowDimensions.height - (mGameWindowViewport.y + mGameWindowViewport.height);
