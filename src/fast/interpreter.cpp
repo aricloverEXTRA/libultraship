@@ -5917,6 +5917,33 @@ int Interpreter::RunPostPasses() {
     return cur;
 }
 
+int Interpreter::RunPostPassesMidFrame() {
+    if (!mRendersToFb) {
+        return -1;
+    }
+
+    const int postFb = RunPostPasses();
+    if (postFb < 0) {
+        return -1;
+    }
+
+    // Composite the processed world back into the game framebuffer so the draws
+    // that follow (HUD, UI, messages) land on top of the post-processed image
+    // instead of being processed themselves.
+    CopyFrameBuffer(mGameFb, postFb, false, nullptr);
+    mRapi->StartDrawToFramebuffer(mGameFb, (float)mCurDimensions.height / mNativeDimensions.height);
+    // The copy rebound the draw target behind the state cache's back; force the
+    // viewport and scissor to reapply against the game framebuffer.
+    mRdp->viewport_or_scissor_changed = true;
+    mRenderingState.viewport = {};
+    mRenderingState.scissor = {};
+    mFbActive = false;
+    mActiveFrameBuffer = mFrameBuffers.end();
+
+    mPostPassesRanMidFrame = true;
+    return postFb;
+}
+
 bool gfx_pop_shader(F3DGfx** cmd0) {
     Interpreter* gfx = mInstance.lock().get();
     F3DGfx* cmd = *cmd0;
@@ -6794,6 +6821,15 @@ bool gfx_copy_fb_handler_custom(F3DGfx** cmd0) {
     return false;
 }
 
+// OTR_G_RUN_POST_PASSES: the game emits this at the world/UI boundary so the
+// registered post passes process the world layer before the HUD/UI is drawn.
+bool gfx_run_post_passes_handler_custom(F3DGfx** cmd0) {
+    Interpreter* gfx = mInstance.lock().get();
+    gfx->Flush();
+    gfx->RunPostPassesMidFrame();
+    return false;
+}
+
 bool gfx_read_fb_handler_custom(F3DGfx** cmd0) {
     Interpreter* gfx = mInstance.lock().get();
     F3DGfx* cmd = *cmd0;
@@ -7432,6 +7468,7 @@ static constexpr UcodeHandler otrHandlers = {
     { OTR_G_PAL_BLEND, { "G_PAL_BLEND", gfx_palette_blend_handler_custom } },
     { OTR_G_PAL_MASK, { "G_PAL_MASK", gfx_palette_mask_handler_custom } },
     { OTR_G_PAL_TINT, { "G_PAL_TINT", gfx_palette_tint_handler_custom } },
+    { OTR_G_RUN_POST_PASSES, { "G_RUN_POST_PASSES", gfx_run_post_passes_handler_custom } },
 };
 
 static constexpr UcodeHandler f3dex2Handlers = {
@@ -7774,6 +7811,7 @@ void Interpreter::StartFrame() {
 
     mPrvDimensions = mCurDimensions;
     mPrevNativeDimensions = mNativeDimensions;
+    mPostPassesRanMidFrame = false;
     const bool postPassesActive = HasPostPasses();
     // Post passes (SSAO/depth debug) sample the scene depth buffer, which must be
     // single-sampled to be shader-readable. Run the game framebuffer without MSAA
@@ -7983,7 +8021,9 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
     if (!mPostManifestChecked) {
         LoadPostPassManifest();
     }
-    const int postOutputFb = RunPostPasses();
+    // If the game already ran the post chain at the world/UI boundary this frame,
+    // the image was composited back into the game framebuffer; don't run it again.
+    const int postOutputFb = mPostPassesRanMidFrame ? -1 : RunPostPasses();
 
     if (mRendersToFb) {
         mRapi->StartDrawToFramebuffer(0, 1);

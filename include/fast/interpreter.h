@@ -833,6 +833,9 @@ class Interpreter {
     void PopMaterialShaderScopes();
     int mPostPassNextId = 1;
     int mPostPassFb[2] = { -1, -1 }; // ping-pong targets, created lazily
+    // Set when RunPostPassesMidFrame ran this frame, so the end-of-frame post is
+    // skipped (the image was already processed at the world/UI boundary).
+    bool mPostPassesRanMidFrame = false;
     bool mPostManifestChecked = false;
     // Registers (or finds) a custom shader template path, returning its id for
     // the combiner key. Shared by G_PUSH_SHADER and the post-process chain.
@@ -840,6 +843,12 @@ class Interpreter {
     // Executes the registered passes over the game framebuffer; returns the
     // rapi framebuffer id holding the final image, or -1 when nothing ran.
     int RunPostPasses();
+    // Runs the post chain now (mid-frame, at the game's world/UI boundary) and
+    // composites the processed image back into the game framebuffer, so draws
+    // that follow (HUD, UI, messages) land on top of the post-processed world.
+    // Emitted by the game as OTR_G_RUN_POST_PASSES. Returns the post fb id, or
+    // -1 when no pass ran. When it runs, the end-of-frame post is skipped once.
+    int RunPostPassesMidFrame();
     void LoadPostPassManifest();
     int mInterpolationIndex;
     int mInterpolationIndexTarget;

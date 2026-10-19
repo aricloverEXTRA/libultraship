@@ -83,6 +83,7 @@ constexpr int8_t RDP_G_SETTILESCROLL_INTERP = OPCODE(0x4d);
 constexpr int8_t OTR_G_PAL_BLEND = OPCODE(0x4e);
 constexpr int8_t OTR_G_PAL_MASK = OPCODE(0x4f);
 constexpr int8_t OTR_G_PAL_TINT = OPCODE(0x50);
+constexpr int8_t OTR_G_RUN_POST_PASSES = OPCODE(0x51);
 
 /*
  * The following commands are the "generated" RDP commands; the user
