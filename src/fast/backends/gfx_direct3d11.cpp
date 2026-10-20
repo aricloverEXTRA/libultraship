@@ -1182,6 +1182,9 @@ void GfxRenderingAPIDX11::SelectTextureFbDepth(int fbID, int tile) {
     // MSAA depth is a multisampled SRV (no .Sample); only single-sampled depth
     // is samplable. Callers must ensure MSAA is off for depth-consuming passes.
     if (fb.msaa_level > 1 || fb.depth_stencil_srv.Get() == nullptr) {
+        SPDLOG_WARN("[PostFx] depth SRV unavailable for fb {} (msaa={}, srv={}); depth-consuming post passes "
+                    "will read black",
+                    fbID, fb.msaa_level, fb.depth_stencil_srv.Get() != nullptr);
         mCurrentDepthSrvs[tile] = nullptr;
         return;
     }

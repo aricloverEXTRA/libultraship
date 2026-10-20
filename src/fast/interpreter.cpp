@@ -5931,10 +5931,12 @@ int Interpreter::RunPostPasses() {
 
         // Previous image on tile 0
         mRapi->SelectTextureFb(cur, 0);
-        // Scene depth on tile 1. Only the game framebuffer has a depth buffer;
-        // ping-pong targets don't, so later passes get a cleared binding. A pass
-        // shader may sample it as t1/s1 to reconstruct screen-space geometry.
-        mRapi->SelectTextureFbDepth(cur == mGameFb ? cur : -1, 1);
+        // Scene depth on tile 1. The game framebuffer is the only one with a
+        // depth buffer, so always bind it (not just for the first pass): the
+        // ping-pong targets have no depth, and reading a cleared binding would
+        // zero the depth a pass shader reconstructs geometry from. No read/write
+        // hazard exists since the passes never write depth.
+        mRapi->SelectTextureFbDepth(mGameFb, 1);
         mRdp->textures_changed[0] = false;
         mRdp->textures_changed[1] = false;
 
