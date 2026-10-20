@@ -60,9 +60,9 @@
     // float`, while the vertex stage keeps the ES default of highp, so this has
     // to be stated explicitly or the program fails to link and the port renders
     // black. Desktop GLSL 1.10 has no precision qualifiers, hence the split.
-    uniform highp vec4 uCustom[32];
+    uniform highp vec4 uCustom[48];
     @else
-    uniform vec4 uCustom[32];
+    uniform vec4 uCustom[48];
     @end
 
     @if(o_prim_depth)

@@ -22,7 +22,7 @@ struct DrawUniforms {
     float4 palette_params[2];
     float4 lod_params;
     // Game-bindable register file; lockstep with DrawUniforms in gfx_metal.h
-    float4 uCustom[32];
+    float4 uCustom[48];
     float4 debug_tint; // HD-replacement debug tint: rgb = color, a = mix amount
 };
 

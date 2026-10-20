@@ -34,7 +34,7 @@ cbuffer PerDrawCB : register(b1) {
     float4 fog_params;
     float4 palette_params[2];
     float4 lod_params;
-    float4 uCustom[32];
+    float4 uCustom[48];
 }
 
 Texture2D g_texture0 : register(t0);

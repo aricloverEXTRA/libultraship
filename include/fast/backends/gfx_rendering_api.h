@@ -77,7 +77,7 @@ struct LightingUniforms {
     int32_t padding[3];
 };
 
-constexpr int GFX_NUM_CUSTOM_UNIFORMS = 32;
+constexpr int GFX_NUM_CUSTOM_UNIFORMS = 48;
 
 // Game-bindable uniform register file, exposed to shader templates as
 // `uniform vec4 uCustom[GFX_NUM_CUSTOM_UNIFORMS]` (loose uniform on GL so the
@@ -85,7 +85,8 @@ constexpr int GFX_NUM_CUSTOM_UNIFORMS = 32;
 // the other backends). Registers 0 and 1 are reserved for engine built-ins:
 //   [0] = (frame count, time seconds, delta seconds, 0)
 //   [1] = (fb width, fb height, 1/width, 1/height)
-// Games and custom/post shaders use registers 2..15.
+// Games and custom/post shaders use registers 2..15; PaperBoat uses up to 47
+// (invVP in 23..27) for its post-processing passes.
 struct CustomUniforms {
     float regs[GFX_NUM_CUSTOM_UNIFORMS][4];
 };
