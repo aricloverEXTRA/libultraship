@@ -5598,6 +5598,57 @@ bool gfx_movemem_handler_otr(F3DGfx** cmd0) {
     return false;
 }
 
+// General 4x4 inverse (cofactor expansion) for the camera view-projection
+// matrix. Returns false for a singular matrix. Row-major in/out.
+static bool InvertMatrix4(const float m[4][4], float out[4][4]) {
+    float inv[16];
+    inv[0] = m[1][1] * m[2][2] * m[3][3] - m[1][1] * m[2][3] * m[3][2] - m[2][1] * m[1][2] * m[3][3] +
+             m[2][1] * m[1][3] * m[3][2] + m[3][1] * m[1][2] * m[2][3] - m[3][1] * m[1][3] * m[2][2];
+    inv[4] = -m[0][1] * m[2][2] * m[3][3] + m[0][1] * m[2][3] * m[3][2] + m[2][1] * m[0][2] * m[3][3] -
+             m[2][1] * m[0][3] * m[3][2] - m[3][1] * m[0][2] * m[2][3] + m[3][1] * m[0][3] * m[2][2];
+    inv[8] = m[0][1] * m[1][2] * m[3][3] - m[0][1] * m[1][3] * m[3][2] - m[1][1] * m[0][2] * m[3][3] +
+             m[1][1] * m[0][3] * m[3][2] + m[3][1] * m[0][2] * m[1][3] - m[3][1] * m[0][3] * m[1][2];
+    inv[12] = -m[0][1] * m[1][2] * m[2][3] + m[0][1] * m[1][3] * m[2][2] + m[1][1] * m[0][2] * m[2][3] -
+              m[1][1] * m[0][3] * m[2][2] - m[2][1] * m[0][2] * m[1][3] + m[2][1] * m[0][3] * m[1][2];
+    inv[1] = -m[0][0] * m[2][2] * m[3][3] + m[0][0] * m[2][3] * m[3][2] + m[2][0] * m[0][2] * m[3][3] -
+             m[2][0] * m[0][3] * m[3][2] - m[3][0] * m[0][2] * m[2][3] + m[3][0] * m[0][3] * m[2][2];
+    inv[5] = m[0][0] * m[2][2] * m[3][3] - m[0][0] * m[2][3] * m[3][2] - m[2][0] * m[1][2] * m[3][3] +
+             m[2][0] * m[1][3] * m[3][2] + m[3][0] * m[1][2] * m[2][3] - m[3][0] * m[1][3] * m[2][2];
+    inv[9] = -m[0][0] * m[1][2] * m[3][3] + m[0][0] * m[1][3] * m[3][2] + m[1][0] * m[0][2] * m[3][3] -
+             m[1][0] * m[0][3] * m[3][2] - m[3][0] * m[0][2] * m[1][3] + m[3][0] * m[0][3] * m[1][2];
+    inv[13] = m[0][0] * m[1][2] * m[2][3] - m[0][0] * m[1][3] * m[2][2] - m[1][0] * m[0][2] * m[2][3] +
+              m[1][0] * m[0][3] * m[2][2] + m[2][0] * m[0][2] * m[1][3] - m[2][0] * m[0][3] * m[1][2];
+    inv[2] = m[0][0] * m[1][1] * m[3][3] - m[0][0] * m[1][3] * m[3][1] - m[1][0] * m[0][1] * m[3][3] +
+             m[1][0] * m[0][3] * m[3][1] + m[3][0] * m[0][1] * m[1][3] - m[3][0] * m[0][3] * m[1][1];
+    inv[6] = -m[0][0] * m[1][1] * m[3][2] + m[0][0] * m[1][2] * m[3][1] + m[1][0] * m[0][1] * m[3][2] -
+             m[1][0] * m[0][2] * m[3][1] - m[3][0] * m[0][1] * m[1][2] + m[3][0] * m[0][2] * m[1][1];
+    inv[10] = m[0][0] * m[1][1] * m[2][3] - m[0][0] * m[1][3] * m[2][1] - m[1][0] * m[0][1] * m[2][3] +
+              m[1][0] * m[0][3] * m[2][1] + m[2][0] * m[0][1] * m[1][3] - m[2][0] * m[0][3] * m[1][1];
+    inv[14] = -m[0][0] * m[1][1] * m[2][2] + m[0][0] * m[1][2] * m[2][1] + m[1][0] * m[0][1] * m[2][2] -
+              m[1][0] * m[0][2] * m[2][1] - m[2][0] * m[0][1] * m[1][2] + m[2][0] * m[0][2] * m[1][1];
+    inv[3] = -m[0][0] * m[1][1] * m[2][2] + m[0][0] * m[1][2] * m[2][1] + m[1][0] * m[0][1] * m[2][2] -
+             m[1][0] * m[0][2] * m[2][1] - m[2][0] * m[0][1] * m[1][2] + m[2][0] * m[0][2] * m[1][1];
+    inv[7] = m[0][0] * m[1][1] * m[3][2] - m[0][0] * m[1][2] * m[3][1] - m[1][0] * m[0][1] * m[3][2] +
+             m[1][0] * m[0][2] * m[3][1] + m[3][0] * m[0][1] * m[1][2] - m[3][0] * m[0][2] * m[1][1];
+    inv[11] = -m[0][0] * m[1][1] * m[2][3] + m[0][0] * m[1][3] * m[2][1] + m[1][0] * m[0][1] * m[2][3] -
+              m[1][0] * m[0][3] * m[2][1] - m[2][0] * m[0][1] * m[1][3] + m[2][0] * m[0][3] * m[1][1];
+    inv[15] = m[0][0] * m[1][1] * m[2][2] - m[0][0] * m[1][2] * m[2][1] - m[1][0] * m[0][1] * m[2][2] +
+              m[1][0] * m[0][2] * m[2][1] + m[2][0] * m[0][1] * m[1][2] - m[2][0] * m[0][2] * m[1][1];
+
+    float det = m[0][0] * inv[0] + m[0][1] * inv[4] + m[0][2] * inv[8] + m[0][3] * inv[12];
+    if (det > -1e-12f && det < 1e-12f) {
+        return false;
+    }
+    float invDet = 1.0f / det;
+    // inv[] is column-major cofactors; transpose into row-major out[][].
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            out[i][j] = inv[j * 4 + i] * invDet;
+        }
+    }
+    return true;
+}
+
 void Interpreter::SetCustomUniform(uint8_t idx, const float values[4]) {
     if (idx >= GFX_NUM_CUSTOM_UNIFORMS) {
         SPDLOG_ERROR("SetCustomUniform: register {} out of range (max {})", idx, GFX_NUM_CUSTOM_UNIFORMS - 1);
@@ -5608,6 +5659,23 @@ void Interpreter::SetCustomUniform(uint8_t idx, const float values[4]) {
         Flush();
         memcpy(mCustomUniforms.regs[idx], values, sizeof(float) * 4);
     }
+}
+
+void Interpreter::SetCameraViewProjection(const float m[4][4]) {
+    memcpy(mCameraViewProj, m, sizeof(mCameraViewProj));
+    // Invert on the CPU so the post shader only needs one matrix-vector product
+    // per pixel. Row-major, row-vector convention: clip = worldPos * VP, so
+    // worldPos = clip * invVP. The camera centre is the world point that projects
+    // to the clip origin, i.e. invVP applied to (0, 0, 0, 1) => the last row.
+    float inv[4][4];
+    if (!InvertMatrix4(m, inv)) {
+        return;
+    }
+    for (int i = 0; i < 4; i++) {
+        SetCustomUniform((uint8_t)(23 + i), inv[i]);
+    }
+    // Camera world position (invVP row 3, xyz) in register 27.
+    SetCustomUniform(27, inv[3]);
 }
 
 bool gfx_set_uniform_handler_custom(F3DGfx** cmd0) {
@@ -8377,6 +8445,12 @@ extern "C" void gfx_texture_cache_clear() {
 extern "C" void gfx_set_custom_uniform(uint8_t idx, const float values[4]) {
     if (auto gfx = Fast::mInstance.lock()) {
         gfx->SetCustomUniform(idx, values);
+    }
+}
+
+extern "C" void gfx_set_camera_view_projection(const float out[4][4]) {
+    if (auto gfx = Fast::mInstance.lock()) {
+        gfx->SetCameraViewProjection(out);
     }
 }
 

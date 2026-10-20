@@ -520,6 +520,11 @@ class Interpreter {
     // new value only affects subsequent draws. Registers 0-1 are engine
     // built-ins (see CustomUniforms); games use 2..GFX_NUM_CUSTOM_UNIFORMS-1.
     void SetCustomUniform(uint8_t idx, const float values[4]);
+    // Stores the world-camera view-projection matrix so a port can publish it
+    // for depth-based post-processing; only affects the registers a shader
+    // reads, nothing in the draw path. Row-major [4][4], row-vector convention
+    // (clip = worldPos * VP).
+    void SetCameraViewProjection(const float m[4][4]);
     void CopyFrameBuffer(int fb_dst_id, int fb_src_id, bool copyOnce, bool* hasCopiedPtr);
     void ResetFrameBuffer();
     void AdjustPixelDepthCoordinates(float& x, float& y);
@@ -813,6 +818,10 @@ class Interpreter {
     CustomUniforms mCustomUniforms{};
     uint32_t mCustomFrameCount = 0;
     double mCustomTimeSeconds = 0.0;
+    // Camera view-projection matrix published by the port (see
+    // SetCameraViewProjection). Rows go out in custom registers 23..26; register
+    // 27 carries the camera world position. All zero until a port writes one.
+    float mCameraViewProj[4][4] = {};
 
     // Post-processing chain state (see RegisterPostPass)
     std::vector<PostPass> mPostPasses;
@@ -1006,3 +1015,7 @@ extern "C" void gfx_clear_post_passes();
 extern "C" void gfx_shader_cache_clear();
 extern "C" int gfx_create_framebuffer(uint32_t width, uint32_t height, uint32_t native_width, uint32_t native_height,
                                       uint8_t resize, bool forceFixedAspect = false);
+// Publishes the world-camera view-projection matrix so a port can reconstruct
+// world-space geometry from the scene depth buffer in a post pass. out is
+// row-major [4][4] with a row-vector convention (clip = worldPos * VP).
+extern "C" void gfx_set_camera_view_projection(const float out[4][4]);
