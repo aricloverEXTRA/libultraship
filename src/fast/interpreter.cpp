@@ -5676,6 +5676,20 @@ void Interpreter::SetCameraViewProjection(const float m[4][4]) {
     }
     // Camera world position (invVP row 3, xyz) in register 27.
     SetCustomUniform(27, inv[3]);
+    // Also store in mCameraWorldPos for PostFx access
+    mCameraWorldPos[0] = inv[3][0];
+    mCameraWorldPos[1] = inv[3][1];
+    mCameraWorldPos[2] = inv[3][2];
+}
+
+
+void Interpreter::SetCameraWorldPosition(const float pos[3]) {
+    mCameraWorldPos[0] = pos[0];
+    mCameraWorldPos[1] = pos[1];
+    mCameraWorldPos[2] = pos[2];
+    // Also write to custom uniform register 27 for shader access
+    float camPos[4] = { pos[0], pos[1], pos[2], 0.0f };
+    SetCustomUniform(27, camPos);
 }
 
 bool gfx_set_uniform_handler_custom(F3DGfx** cmd0) {
