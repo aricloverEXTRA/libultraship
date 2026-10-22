@@ -520,11 +520,14 @@ class Interpreter {
     // new value only affects subsequent draws. Registers 0-1 are engine
     // built-ins (see CustomUniforms); games use 2..GFX_NUM_CUSTOM_UNIFORMS-1.
     void SetCustomUniform(uint8_t idx, const float values[4]);
-    // Stores the world-camera view-projection matrix so a port can publish it
+// Stores the world-camera view-projection matrix so a port can publish it
     // for depth-based post-processing; only affects the registers a shader
     // reads, nothing in the draw path. Row-major [4][4], row-vector convention
     // (clip = worldPos * VP).
     void SetCameraViewProjection(const float m[4][4]);
+    // Stores the world-camera position for depth-based post-processing.
+    void SetCameraWorldPosition(const float pos[3]);
+
     void CopyFrameBuffer(int fb_dst_id, int fb_src_id, bool copyOnce, bool* hasCopiedPtr);
     void ResetFrameBuffer();
     void AdjustPixelDepthCoordinates(float& x, float& y);
@@ -818,10 +821,11 @@ class Interpreter {
     CustomUniforms mCustomUniforms{};
     uint32_t mCustomFrameCount = 0;
     double mCustomTimeSeconds = 0.0;
-    // Camera view-projection matrix published by the port (see
-    // SetCameraViewProjection). Rows go out in custom registers 23..26; register
-    // 27 carries the camera world position. All zero until a port writes one.
+// Camera view-projection matrix published by the port (see
+// SetCameraViewProjection). Rows go out in custom registers 23..26; register
+// 27 carries the camera world position. All zero until a port writes one.
     float mCameraViewProj[4][4] = {};
+    float mCameraWorldPos[3] = {};
 
     // Post-processing chain state (see RegisterPostPass)
     std::vector<PostPass> mPostPasses;
