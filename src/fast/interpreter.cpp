@@ -22,6 +22,7 @@
 #include <thread>
 #include <array>
 #include <algorithm>
+#include <cmath>
 #include "fast/resource/type/Light.h"
 
 #ifndef _LANGUAGE_C
@@ -87,9 +88,40 @@ std::stack<std::string> currentDir;
 namespace Fast {
 
 static std::atomic<float> gStylizedLightingStrength{ 0.0f };
+static std::atomic<float> gStylizedLightingAmbientFill{ 0.2f };
+static std::atomic<float> gStylizedLightingSkyStrength{ 1.2f };
+static std::atomic<float> gStylizedLightingSkyColor[3] = { 0.35f, 0.6f, 1.0f };
+static std::atomic<float> gStylizedLightingDirection[3] = { 0.25f, 0.85f, 0.45f };
 
-void gfx_set_stylized_lighting_strength(float strength) {
-    gStylizedLightingStrength.store(std::clamp(strength, 0.0f, 1.0f), std::memory_order_relaxed);
+void gfx_set_stylized_lighting(float strength, float ambientFill, float skyStrength, float skyRed, float skyGreen,
+                               float skyBlue, float directionX, float directionY, float directionZ) {
+    const auto clampFinite = [](float value, float minimum, float maximum) {
+        return std::isfinite(value) ? std::clamp(value, minimum, maximum) : 0.0f;
+    };
+
+    gStylizedLightingStrength.store(clampFinite(strength, 0.0f, 1.0f), std::memory_order_relaxed);
+    gStylizedLightingAmbientFill.store(clampFinite(ambientFill, 0.0f, 1.0f), std::memory_order_relaxed);
+    gStylizedLightingSkyStrength.store(clampFinite(skyStrength, 0.0f, 2.0f), std::memory_order_relaxed);
+    gStylizedLightingSkyColor[0].store(clampFinite(skyRed, 0.0f, 1.0f), std::memory_order_relaxed);
+    gStylizedLightingSkyColor[1].store(clampFinite(skyGreen, 0.0f, 1.0f), std::memory_order_relaxed);
+    gStylizedLightingSkyColor[2].store(clampFinite(skyBlue, 0.0f, 1.0f), std::memory_order_relaxed);
+
+    float direction[3] = { clampFinite(directionX, -1.0f, 1.0f), clampFinite(directionY, -1.0f, 1.0f),
+                           clampFinite(directionZ, -1.0f, 1.0f) };
+    const float directionLength = std::sqrt(direction[0] * direction[0] + direction[1] * direction[1] +
+                                            direction[2] * direction[2]);
+    if (directionLength < 0.001f) {
+        direction[0] = 0.0f;
+        direction[1] = 1.0f;
+        direction[2] = 0.0f;
+    } else {
+        for (float& component : direction) {
+            component /= directionLength;
+        }
+    }
+    for (int axis = 0; axis < 3; axis++) {
+        gStylizedLightingDirection[axis].store(direction[axis], std::memory_order_relaxed);
+    }
 }
 
 static UcodeHandlers ucode_handler_index = ucode_f3dex2;
@@ -4042,20 +4074,28 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
                 ? gStylizedLightingStrength.load(std::memory_order_relaxed)
                 : 0.0f;
         if (stylizedLightingStrength > 0.0f) {
-            const float ambientFill = 0.08f * stylizedLightingStrength;
+            const float ambientFill =
+                gStylizedLightingAmbientFill.load(std::memory_order_relaxed) * stylizedLightingStrength;
             for (int channel = 0; channel < 3; channel++) {
-                lu.ambient[channel] = std::min(1.0f, lu.ambient[channel] + ambientFill);
+                const float skyColor = gStylizedLightingSkyColor[channel].load(std::memory_order_relaxed);
+                lu.ambient[channel] = std::min(1.0f, lu.ambient[channel] + ambientFill * skyColor);
             }
 
             if (numLights < GFX_MAX_GPU_LIGHTS) {
                 F3DLight_t skyDirection{};
-                skyDirection.dir[1] = 127;
+                for (int axis = 0; axis < 3; axis++) {
+                    skyDirection.dir[axis] =
+                        static_cast<int8_t>(std::lround(gStylizedLightingDirection[axis].load(std::memory_order_relaxed) *
+                                                       127.0f));
+                }
                 float direction[3];
                 CalculateNormalDir(&skyDirection, direction);
+                const float skyStrength = gStylizedLightingSkyStrength.load(std::memory_order_relaxed) *
+                                          stylizedLightingStrength;
 
-                lu.lights[numLights][0][0] = 0.28f * stylizedLightingStrength;
-                lu.lights[numLights][0][1] = 0.38f * stylizedLightingStrength;
-                lu.lights[numLights][0][2] = 0.58f * stylizedLightingStrength;
+                lu.lights[numLights][0][0] = gStylizedLightingSkyColor[0].load(std::memory_order_relaxed) * skyStrength;
+                lu.lights[numLights][0][1] = gStylizedLightingSkyColor[1].load(std::memory_order_relaxed) * skyStrength;
+                lu.lights[numLights][0][2] = gStylizedLightingSkyColor[2].load(std::memory_order_relaxed) * skyStrength;
                 lu.lights[numLights][1][0] = direction[0];
                 lu.lights[numLights][1][1] = direction[1];
                 lu.lights[numLights][1][2] = direction[2];

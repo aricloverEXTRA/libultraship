@@ -980,7 +980,8 @@ const char* gfx_get_shader(int16_t id);
 // and fetch the current values pre-formatted as prism context items.
 void gfx_register_shader_settings(int16_t shaderId, const std::vector<prism::SettingDecl>& decls);
 std::vector<std::pair<std::string, prism::ContextTypes>> gfx_get_shader_setting_values(int16_t shaderId);
-void gfx_set_stylized_lighting_strength(float strength);
+void gfx_set_stylized_lighting(float strength, float ambientFill, float skyStrength, float skyRed, float skyGreen,
+                               float skyBlue, float directionX, float directionY, float directionZ);
 const char* GfxGetOpcodeName(int8_t opcode);
 
 } // namespace Fast
