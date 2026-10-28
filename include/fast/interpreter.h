@@ -582,6 +582,7 @@ void gfx_set_target_ucode(UcodeHandlers ucode);
 void gfx_push_current_dir(char* path);
 int32_t gfx_check_image_signature(const char* imgData);
 const char* gfx_get_shader(int16_t id);
+void gfx_set_stylized_lighting_strength(float strength);
 const char* GfxGetOpcodeName(int8_t opcode);
 
 } // namespace Fast

@@ -12,6 +12,8 @@
 #endif
 
 #include <any>
+#include <atomic>
+#include <cmath>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -71,6 +73,15 @@ std::stack<std::string> currentDir;
 #define TEXTURE_CACHE_MAX_SIZE 1024
 
 namespace Fast {
+
+static std::atomic<float> gStylizedLightingStrength{ 0.0f };
+
+void gfx_set_stylized_lighting_strength(float strength) {
+    if (!std::isfinite(strength)) {
+        strength = 0.0f;
+    }
+    gStylizedLightingStrength.store(std::clamp(strength, 0.0f, 1.0f), std::memory_order_relaxed);
+}
 
 static UcodeHandlers ucode_handler_index = ucode_f3dex2;
 
@@ -1646,6 +1657,19 @@ void Interpreter::GfxSpVertex(size_t n_vertices, size_t dest_index, const F3DVtx
             int r = mRsp->current_lights[mRsp->current_num_lights - 1].l.col[0];
             int g = mRsp->current_lights[mRsp->current_num_lights - 1].l.col[1];
             int b = mRsp->current_lights[mRsp->current_num_lights - 1].l.col[2];
+            const float stylizedLightingStrength =
+                mRapi != nullptr && mRapi->GetName() == std::string_view("DirectX 11")
+                    ? gStylizedLightingStrength.load(std::memory_order_relaxed)
+                    : 0.0f;
+            if (stylizedLightingStrength > 0.0f) {
+                const float upwardFacing = std::max(0.0f, vn->n[1] / 127.0f);
+                r += 0.025f * stylizedLightingStrength * 255.0f;
+                g += 0.04f * stylizedLightingStrength * 255.0f;
+                b += 0.07f * stylizedLightingStrength * 255.0f;
+                r += upwardFacing * 0.18f * stylizedLightingStrength * 255.0f;
+                g += upwardFacing * 0.25f * stylizedLightingStrength * 255.0f;
+                b += upwardFacing * 0.38f * stylizedLightingStrength * 255.0f;
+            }
 
             for (int i = 0; i < mRsp->current_num_lights - 1; i++) {
                 float intensity = 0;
