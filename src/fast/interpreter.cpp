@@ -86,6 +86,12 @@ std::stack<std::string> currentDir;
 
 namespace Fast {
 
+static std::atomic<float> gStylizedLightingStrength{ 0.0f };
+
+void gfx_set_stylized_lighting_strength(float strength) {
+    gStylizedLightingStrength.store(std::clamp(strength, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 static UcodeHandlers ucode_handler_index = ucode_f3dex2;
 
 const static uint32_t f3dex2AttrHandler[] = {
@@ -4028,6 +4034,32 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
                 lu.lights[i][2][1] = (float)mRsp->current_lights[i].p.pos[1];
                 lu.lights[i][2][2] = (float)mRsp->current_lights[i].p.pos[2];
                 lu.lights[i][2][3] = (float)mRsp->current_lights[i].p.unkE; // kq
+            }
+        }
+
+        const float stylizedLightingStrength =
+            mRapi->GetName() == std::string_view("DirectX 11")
+                ? gStylizedLightingStrength.load(std::memory_order_relaxed)
+                : 0.0f;
+        if (stylizedLightingStrength > 0.0f) {
+            const float ambientFill = 0.08f * stylizedLightingStrength;
+            for (int channel = 0; channel < 3; channel++) {
+                lu.ambient[channel] = std::min(1.0f, lu.ambient[channel] + ambientFill);
+            }
+
+            if (numLights < GFX_MAX_GPU_LIGHTS) {
+                F3DLight_t skyDirection{};
+                skyDirection.dir[1] = 127;
+                float direction[3];
+                CalculateNormalDir(&skyDirection, direction);
+
+                lu.lights[numLights][0][0] = 0.28f * stylizedLightingStrength;
+                lu.lights[numLights][0][1] = 0.38f * stylizedLightingStrength;
+                lu.lights[numLights][0][2] = 0.58f * stylizedLightingStrength;
+                lu.lights[numLights][1][0] = direction[0];
+                lu.lights[numLights][1][1] = direction[1];
+                lu.lights[numLights][1][2] = direction[2];
+                lu.num_lights = ++numLights;
             }
         }
 
