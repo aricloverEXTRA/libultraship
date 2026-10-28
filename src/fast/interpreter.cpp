@@ -4310,6 +4310,44 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
         }
     }
 
+    const bool stylizedFillEnabled = mRapi->GetName() == std::string_view("DirectX 11") &&
+                                     gStylizedLightingStrength.load(std::memory_order_relaxed) > 0.0f && !is_rect &&
+                                     (cc_options & SHADER_OPT(LIGHTING)) == 0 && comb->usedShade;
+    float stylizedFill[3] = {};
+    if (stylizedFillEnabled) {
+        float edge1[3] = { v2->x - v1->x, v2->y - v1->y, v2->z - v1->z };
+        float edge2[3] = { v3->x - v1->x, v3->y - v1->y, v3->z - v1->z };
+        float faceNormal[3] = {
+            edge1[1] * edge2[2] - edge1[2] * edge2[1],
+            edge1[2] * edge2[0] - edge1[0] * edge2[2],
+            edge1[0] * edge2[1] - edge1[1] * edge2[0],
+        };
+        const float normalLength =
+            std::sqrt(faceNormal[0] * faceNormal[0] + faceNormal[1] * faceNormal[1] + faceNormal[2] * faceNormal[2]);
+        if (normalLength > 0.0001f) {
+            for (float& component : faceNormal) {
+                component /= normalLength;
+            }
+
+            F3DLight_t skyDirection{};
+            for (int axis = 0; axis < 3; axis++) {
+                skyDirection.dir[axis] = static_cast<int8_t>(
+                    std::lround(gStylizedLightingDirection[axis].load(std::memory_order_relaxed) * 127.0f));
+            }
+            float direction[3];
+            CalculateNormalDir(&skyDirection, direction);
+            const float diffuse = std::max(0.0f, faceNormal[0] * direction[0] + faceNormal[1] * direction[1] +
+                                                     faceNormal[2] * direction[2]);
+            const float strength = gStylizedLightingStrength.load(std::memory_order_relaxed);
+            const float ambientFill = gStylizedLightingAmbientFill.load(std::memory_order_relaxed) * strength;
+            const float skyStrength = gStylizedLightingSkyStrength.load(std::memory_order_relaxed) * strength * diffuse;
+            for (int channel = 0; channel < 3; channel++) {
+                const float color = gStylizedLightingSkyColor[channel].load(std::memory_order_relaxed);
+                stylizedFill[channel] = std::min(1.0f, color * (ambientFill + skyStrength));
+            }
+        }
+    }
+
     for (int i = 0; i < 3; i++) {
         // Object-space position (or clip-space + identity matrix for rects);
         // the vertex shader applies the palette matrix, y flip and z convention.
@@ -4345,9 +4383,9 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
                 mBufVbo[mBufVboLen++] = (float)v_arr[i]->normal[1];
                 mBufVbo[mBufVboLen++] = (float)v_arr[i]->normal[2];
             } else {
-                mBufVbo[mBufVboLen++] = v_arr[i]->color.r / 255.0f;
-                mBufVbo[mBufVboLen++] = v_arr[i]->color.g / 255.0f;
-                mBufVbo[mBufVboLen++] = v_arr[i]->color.b / 255.0f;
+                mBufVbo[mBufVboLen++] = std::min(1.0f, v_arr[i]->color.r / 255.0f * (1.0f + stylizedFill[0]));
+                mBufVbo[mBufVboLen++] = std::min(1.0f, v_arr[i]->color.g / 255.0f * (1.0f + stylizedFill[1]));
+                mBufVbo[mBufVboLen++] = std::min(1.0f, v_arr[i]->color.b / 255.0f * (1.0f + stylizedFill[2]));
             }
             if (use_alpha) {
                 // Raw vertex alpha; the standard-fog "shade alpha = 1.0" override
