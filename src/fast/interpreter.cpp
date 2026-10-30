@@ -4310,7 +4310,8 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
         }
     }
 
-    const bool stylizedFillEnabled = mRapi->GetName() == std::string_view("DirectX 11") &&
+    const bool stylizedFillEnabled = mRapi != nullptr &&
+                                     mRapi->GetName() == std::string_view("DirectX 11") &&
                                      gStylizedLightingStrength.load(std::memory_order_relaxed) > 0.0f && !is_rect &&
                                      (cc_options & SHADER_OPT(LIGHTING)) == 0 && comb->usedShade;
     float stylizedFill[3] = {};
