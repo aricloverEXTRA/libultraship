@@ -102,6 +102,68 @@ void GfxRenderingAPIDX11::CreateDepthStencilObjects(uint32_t width, uint32_t hei
         ThrowIfFailed(mDevice->CreateShaderResourceView(texture.Get(), &srv_desc, srv));
     }
 }
+// Creates a sunlight shadow map texture with depth view and shader resource view.
+// Quality tiers: 0=512, 1=1024, 2=2048. Returns false on failure (no crash).
+static bool CreateShadowMapObjects(ID3D11Device* device, uint32_t qualityTier,
+                                  ID3D11Texture2D** textureOut,
+                                  ID3D11DepthStencilView** dsvOut,
+                                  ID3D11ShaderResourceView** srvOut) {
+    if (device == nullptr || textureOut == nullptr || dsvOut == nullptr || srvOut == nullptr) {
+        return false;
+    }
+    uint32_t size = 1024;
+    if (qualityTier == 0) size = 512;
+    else if (qualityTier >= 2) size = 2048;
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = size;
+    desc.Height = size;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = 0;
+    desc.MiscFlags = 0;
+
+    ID3D11Texture2D* texture = nullptr;
+    HRESULT hr = device->CreateTexture2D(&desc, nullptr, &texture);
+    if (FAILED(hr) || texture == nullptr) {
+        return false;
+    }
+
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    dsvDesc.Texture2D.MipSlice = 0;
+    ID3D11DepthStencilView* dsv = nullptr;
+    hr = device->CreateDepthStencilView(texture, &dsvDesc, &dsv);
+    if (FAILED(hr) || dsv == nullptr) {
+        texture->Release();
+        return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = 1;
+    ID3D11ShaderResourceView* srv = nullptr;
+    hr = device->CreateShaderResourceView(texture, &srvDesc, &srv);
+    if (FAILED(hr) || srv == nullptr) {
+        dsv->Release();
+        texture->Release();
+        return false;
+    }
+
+    *textureOut = texture;
+    *dsvOut = dsv;
+    *srvOut = srv;
+    return true;
+}
+
 static bool CreateDeviceFunc(class GfxRenderingAPIDX11* self, bool SoftwareRenderer) {
 #if DEBUG_D3D
     UINT device_creation_flags = D3D11_CREATE_DEVICE_DEBUG;
