@@ -4342,9 +4342,12 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
             const float strength = gStylizedLightingStrength.load(std::memory_order_relaxed);
             const float ambientFill = gStylizedLightingAmbientFill.load(std::memory_order_relaxed) * strength;
             const float skyStrength = gStylizedLightingSkyStrength.load(std::memory_order_relaxed) * strength * diffuse;
+            // Sunlight shadow: darken surfaces facing away from the sun.
+            const float shadowFactor = std::max(0.0f, 1.0f - diffuse * 2.0f) * 0.5f * strength;
             for (int channel = 0; channel < 3; channel++) {
                 const float color = gStylizedLightingSkyColor[channel].load(std::memory_order_relaxed);
                 stylizedFill[channel] = std::min(1.0f, color * (ambientFill + skyStrength));
+                stylizedFill[channel] = std::max(0.0f, stylizedFill[channel] - shadowFactor);
             }
         }
     }
